@@ -1,18 +1,16 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"fmt"
 
 	"github.com/1stship/wireguard-oneshot"
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 )
 
 type ArcGateway struct {
-    PrivateKey           string `json:"privateKey"`
-    PublicKey            string `json:"publicKey"`
-    Endpoint             string `json:"endpoint"`
+	PrivateKey           string `json:"privateKey"`
+	PublicKey            string `json:"publicKey"`
+	Endpoint             string `json:"endpoint"`
 	ClientIpAddress      string `json:"clientIpAddress"`
 	DestinationIpAddress string `json:"destinationIpAddress"`
 	DestinationPort      int    `json:"destinationPort"`
@@ -24,61 +22,34 @@ func main() {
 	lambda.Start(handler)
 }
 
-func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	body := request.Body
-	var bodyDecoded []byte
-	if request.IsBase64Encoded {
-		bodyDecoded, _ = base64.StdEncoding.DecodeString(body)
-	} else {
-		bodyDecoded = []byte(body)
-	}
-	
-	var input ArcGateway
-	err := json.Unmarshal(bodyDecoded, &input)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			Body:       string(err.Error()),
-			StatusCode: 400,
-		}, err
-	}
+func handler(event ArcGateway) error {
 
-	config := wireguard.Configuration {
-		PrivateKey: input.PrivateKey,
-		PublicKey: input.PublicKey,
-		Endpoint: input.Endpoint,
+	// TODO: We should handle error case of wrong type of event
+	var input = event
+
+	config := wireguard.Configuration{
+		PrivateKey:      input.PrivateKey,
+		PublicKey:       input.PublicKey,
+		Endpoint:        input.Endpoint,
 		ClientIpAddress: input.ClientIpAddress,
 	}
 
 	var payload []byte
-	if input.PayloadFormat == "base64" {
-		payload, err = base64.StdEncoding.DecodeString(input.Payload)
-	    if err != nil {
-		    return events.APIGatewayProxyResponse{
-				Body:       string(err.Error()),
-				StatusCode: 400,
-			}, err
-	    }
-	} else {
-		payload = []byte(input.Payload)
-	}
+	payload = []byte(input.Payload)
 
 	receivedBuffer, err := wireguard.UdpOneShot(payload, input.DestinationIpAddress, input.DestinationPort, config)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			Body:       string(err.Error()),
-			StatusCode: 400,
-		}, err
+		fmt.Println("Error sending data to Harvest Data")
+		return nil
 	}
 
 	for i := 0; i < len(receivedBuffer); i++ {
-		if (receivedBuffer[i] == 0) {
+		if receivedBuffer[i] == 0 {
 			receivedBuffer = receivedBuffer[0:i]
 			break
 		}
 	}
 
-	return events.APIGatewayProxyResponse{
-        Body:       string(receivedBuffer),
-        StatusCode: 200,
-    }, nil
+	// It is better to return not nil but the returned value
+	return nil
 }
